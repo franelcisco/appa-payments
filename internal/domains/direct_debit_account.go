@@ -1,6 +1,9 @@
 package domains
 
-import "slices"
+import (
+	"errors"
+	"slices"
+)
 
 // Codes sent to the checkout, which maps them to what the buyer reads.
 const (
@@ -12,6 +15,8 @@ const (
 	ResponseCodeAffiliationRefused = "ERR03"
 	ResponseCodeInvalidAccount     = "ERR04"
 )
+
+var DirectDebitAccountGenericError = errors.New("ocurrió un error al procesar la solicitud")
 
 // DirectDebitAccountRequest is the internal request used by the payment service
 // to process a direct debit account charge (first-time or recurring).

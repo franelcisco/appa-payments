@@ -118,6 +118,16 @@ type DirectDebitAccountWithOTPRequest struct {
 	TypeOrder *OrderType `json:"typeOrder,omitempty"`
 }
 
+type ProcessDirectDebitResponse struct {
+	Success         bool   `json:"success"`
+	Code            string `json:"code,omitempty"`
+	Reference       string `json:"reference,omitempty"`
+	OrderID         string `json:"orderId,omitempty"`
+	OrderName       string `json:"orderName,omitempty"`
+	StatusPageURL   string `json:"statusPageUrl,omitempty"`
+	FinancialStatus string `json:"financialStatus,omitempty"`
+}
+
 type ProcessDirectDebitAccountResponse struct {
 	Success         bool   `json:"success"`
 	Code            string `json:"code,omitempty"`

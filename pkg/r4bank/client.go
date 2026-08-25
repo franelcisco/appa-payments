@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"appa_payments/internal/domains"
 	helpers "appa_payments/pkg"
 
 	"go.uber.org/zap"
@@ -16,12 +17,22 @@ import (
 
 const defaultRequestTimeout = 25 * time.Second
 
-// endpointTimeouts overrides defaultRequestTimeout for R4 endpoints known to be slow.
-// Only direct-debit-account polls for operation status upstream; validate-immediate
-// is a single bank call capped at 20s on the R4 side.
-var endpointTimeouts = map[string]time.Duration{
-	r4ValidateImmediateEndpoint:  35 * time.Second,
-	r4DirectDebitAccountEndpoint: 150 * time.Second,
+// Above the r4-service's 3m30s operation deadline so its concrete R4 error
+// arrives instead of a generic client timeout; below Cloud Run's 300s inbound
+// timeout so we answer our caller before the platform cuts the connection.
+// No inbound request may chain two calls that use it.
+const pollingRequestTimeout = 4 * time.Minute
+
+var pollingEndpoints = map[string]bool{
+	r4ValidateImmediateEndpoint:  true,
+	r4DirectDebitAccountEndpoint: true,
+}
+
+func requestTimeout(endpoint string) time.Duration {
+	if pollingEndpoints[endpoint] {
+		return pollingRequestTimeout
+	}
+	return defaultRequestTimeout
 }
 
 type RestClient struct {
@@ -46,14 +57,6 @@ func NewClient(
 		secret:  secret,
 		logger:  logger,
 	}
-}
-
-// requestTimeout returns the deadline to apply to endpoint.
-func requestTimeout(endpoint string) time.Duration {
-	if timeout, ok := endpointTimeouts[endpoint]; ok {
-		return timeout
-	}
-	return defaultRequestTimeout
 }
 
 // Do executes an HTTP request
@@ -104,11 +107,18 @@ func (r *RestClient) Do(
 
 	data, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var body domains.R4errorResponse
+		_ = json.Unmarshal(data, &body)
+
 		if endpoint == r4ValidateImmediateEndpoint {
-			return nil, fmt.Errorf("%s", string(data))
+			return nil, &domains.R4APIError{Code: body.Code, OperationID: body.OperationID, Detail: string(data)}
 		}
 		r.logger.Error("R4 API error: ", zap.String("body", string(data)), zap.Any("payload", payload))
-		return nil, fmt.Errorf("R4 API error: %s", string(data))
+		return nil, &domains.R4APIError{
+			Code:        body.Code,
+			OperationID: body.OperationID,
+			Detail:      fmt.Sprintf("R4 API error: %s", string(data)),
+		}
 	}
 
 	return data, nil
