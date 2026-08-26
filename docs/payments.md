@@ -60,50 +60,53 @@ that, so:
 
 - A failed **pago móvil** match is **HTTP 200** with `{"success": false, "message": "..."}`
   — the front must read `success`, not the status code.
-- A failed **domiciliación** is **HTTP 200** with `{"success": false, "code": "ERR0X"}`.
-- Only infrastructure failures (Shopify down, BCV down, unmapped R4 code) reach 500.
-- One exception: an in-flight débito inmediato is reported as
-  **HTTP 500 `{"error": "EN_PROCESO"}`** — see below.
+- A failed **domiciliación** is **HTTP 200** with `{"success": false, "code": "ERR0X", "message": "..."}`.
+- A refused **débito inmediato** is **HTTP 200** with `{"success": false, "code": "<R4 code>", "message": "..."}`.
+- **If R4 answered with a code at all, the response is 200 carrying that code.**
+  That holds for a code we have no text for too — it goes out raw with
+  `"message": "Desconocido"` rather than becoming a failure.
+- **500 is reserved for the case where there is no code**: Shopify down, BCV
+  down, the r4-service's own 500, or the call never reaching it. The distinction
+  is the point — a call with no code may still be in flight at the bank, and
+  must not be shown to the buyer as a refusal.
 
 ## Débito inmediato
 
 1. **`generate-otp`** — reads the order/draft total, converts to VES, asks R4 to
    send its own OTP to the buyer's phone. R4 sends it, not Mailgun.
 2. **`validate-direct-debit`** — charges through `r4Repo.ValidateImmediateDebit`
-   and answers off R4's **first** reply. It does not wait for the outcome.
+   and answers off the code R4 returns. The r4-service resolves the operation to
+   a final code before replying, so **this service no longer polls**
+   (`waitForOperationCompletion` and `GetOperationByID` are gone from this path).
 
-Everything after that first reply happens in a goroutine
-(`waitForOperationCompletion`), which is also the only thing that writes the
-`r4_appa_debits_direct` row and marks the order paid:
+Everything happens in the request, in this order: the R4 call, then
+`finalizeCharge` when the code is `ACCP`, then the `r4_appa_debits_direct` row,
+then the reply:
 
-- R4 answers with a **break code** while the bank is still deciding — `AC00`
-  (in progress) or `"11"` (pending), per `domains.IsR4BreakCode`. The goroutine
-  polls `GetOperationByID` every 3 s, at most 10 times, until the code stops
-  being one of those.
-- If it lands on `ACCP`, `finalizeCharge` runs and the row is written with the
-  completed order's id/name. Any other code writes the row and stops. A failed
-  poll writes the sentinel code `"ERROR"`.
+```json
+{ "success": true, "code": "ACCP", "reference": "...", "message": "Transacción Exitosa" }
+```
 
-What the caller gets back, meanwhile:
+- `success` is strictly `code == "ACCP"`. A refusal answers 200 with
+  `success: false`, the bank's code, and its description from
+  `R4Code.GetR4CodeDescription()` (`"Desconocido"` when we have no text for it).
+- A **break code** — `AC00` (in progress) or `"11"` (pending), per
+  `domains.IsR4BreakCode` — is returned like any other: 200, `success: false`,
+  `code: "AC00"`, `"message": "En espera de respuesta del banco"`. The literal
+  `EN_PROCESO` string is gone.
+- **No code at all** (transport failure, the r4-service's own 500) → HTTP 500,
+  and **no row is written** — only a log. The charge may still have reached the
+  bank, so that case is reconciled from the r4-service side, not from here.
+- If the charge lands on `ACCP` but `finalizeCharge` fails, the reply is still
+  `success: true` — the money moved and the buyer must not retry. Support is
+  alerted; see the error-handling note below.
 
-- **First reply is a break code** → HTTP 500 `{"error": "EN_PROCESO"}`,
-  immediately.
-- **Anything else** → HTTP 200 `{"message": "Direct debit validated
-  successfully"}`.
-
-> **HTTP 200 here does not mean approved.** The response is not checked against
-> `ACCP`: a refusal (`AM04`, `AM02`, `MD15`, …) answers exactly like an approval,
-> because the code that could tell them apart only exists inside the goroutine.
-> A caller that treats 200 as paid will show a thank-you page for a declined
-> débito — which is what both checkouts work around by reading the
-> `r4_appa_debits_direct` row instead (`debito-status`). Fixing that means
-> answering off the resolved code, and it is the single highest-value change
-> this endpoint has left.
-
-> **`EN_PROCESO` has no follow-up channel either.** No poll endpoint, no status
+> **A break code has no follow-up channel.** No poll endpoint, no status
 > endpoint, no webhook for the front to learn how that charge ended, on any
-> `typeOrder`. The order does get marked paid server-side once R4 answers — the
-> buyer's browser just never hears about it.
+> `typeOrder` — and nothing marks the order paid later either, now that the
+> background poller is gone. If R4 later approves an `AC00`, nothing here
+> notices. Reconcile those rows out of band. This matches `bone_appetit_api`,
+> deliberately: the two services answer the same way.
 
 ## Pago Móvil
 
@@ -195,7 +198,7 @@ metafield is **deleted**, so the next attempt goes back through affiliation.
 | `ERR02` | `MD01` | Affiliation requested, not active yet. Metafield cleared. |
 | `ERR03` | `MD09` | Affiliation refused. Metafield cleared. |
 | `ERR04` | `AC01` | Invalid account number. |
-| *(none)* | anything unmapped | HTTP 500, generic message. Add new codes to `directDebitAccountResponseCodes`, never in a handler. |
+| *(the raw R4 code)* | anything unmapped | HTTP 200, `success: false`, the bank's own code, `"message": "Desconocido"`. The front must not assume `code` is always one of ours. Add new mappings to `directDebitAccountResponseCodes`, never in a handler. |
 
 ### OTP cache
 

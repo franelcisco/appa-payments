@@ -10,6 +10,7 @@ type R4AppaDebitDirect struct {
 	Reference   string    `gorm:"column:reference" json:"reference"`
 	DNI         string    `gorm:"column:dni" json:"dni"`
 	Code        string    `gorm:"column:code" json:"code"`
+	OperationID string    `gorm:"column:operation_id" json:"operationId,omitempty"`
 	Success     bool      `gorm:"column:success" json:"success"`
 	OrderID     string    `gorm:"column:order_id" json:"orderId"`
 	OrderName   string    `gorm:"column:order_name" json:"orderName"`

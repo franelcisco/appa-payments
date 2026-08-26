@@ -132,7 +132,8 @@ func (s *RecurrentRetryService) retryOne(ctx context.Context, record dbModels.Re
 			logger.Error("recurrent retry: failed to delete resolved pending payment", zap.Error(err))
 			return
 		}
-		logger.Info("recurrent retry: charge succeeded, deleted pending payment")
+
+		logger.Info("recurrent retry: charge succeeded, deleted pending payment", zap.String("order_id", record.OrderID), zap.String("code", resp.Code))
 		return
 	}
 

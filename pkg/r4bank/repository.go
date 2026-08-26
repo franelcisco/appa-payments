@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"appa_payments/internal/domains"
+
 	"go.uber.org/zap"
 )
 
@@ -68,11 +70,36 @@ func (r *R4repository) GenerateOTP(ctx context.Context, req OTPRequest) error {
 	return nil
 }
 
+// parseR4ErrorBody parses the error response from R4 API and returns a structured R4APIError.
+func (r *R4repository) parseR4ErrorBody(resp []byte, reqErr error, req any) (*domains.R4APIError, error) {
+	if resp == nil {
+		return nil, fmt.Errorf("error en request: %w", reqErr)
+	}
+
+	r.logger.Error(reqErr.Error(), zap.Any("request", req), zap.String("response", string(resp)))
+
+	var errResp domains.R4APIError
+	if err := json.Unmarshal(resp, &errResp); err != nil {
+		return nil, fmt.Errorf("error decodificando respuesta de error: %w", err)
+	}
+
+	return &errResp, nil
+}
+
 // ValidateImmediateDebit validates an immediate debit transaction
 func (r *R4repository) ValidateImmediateDebit(ctx context.Context, req ValidateOTPRequest) (*ValidateDebitInmediateResponse, error) {
 	resp, err := r.r4Client.Do(ctx, req, r4ValidateImmediateEndpoint, http.MethodPost)
 	if err != nil {
-		return nil, fmt.Errorf("error en request: %w", err)
+		errResp, parseErr := r.parseR4ErrorBody(resp, err, req)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+
+		return &ValidateDebitInmediateResponse{
+			ID:     errResp.OperationID,
+			Code:   errResp.Code,
+			Status: false,
+		}, nil
 	}
 
 	var r4Resp ValidateDebitInmediateResponse
@@ -112,7 +139,16 @@ func (r *R4repository) GetOperationByID(ctx context.Context, operationID string)
 func (r *R4repository) DirectDebitAccount(ctx context.Context, req DirectDebitAccountRequest) (*DirectDebitAccountResponse, error) {
 	resp, err := r.r4Client.Do(ctx, req, r4DirectDebitAccountEndpoint, http.MethodPost)
 	if err != nil {
-		return nil, fmt.Errorf("error en request: %w", err)
+		errResp, parseErr := r.parseR4ErrorBody(resp, err, req)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+
+		return &DirectDebitAccountResponse{
+			ID:      errResp.OperationID,
+			Code:    errResp.Code,
+			Success: false,
+		}, nil
 	}
 
 	var accountResp DirectDebitAccountResponse

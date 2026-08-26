@@ -1,5 +1,7 @@
 package r4bank
 
+import "appa_payments/internal/domains"
+
 // BCVTasaUSDResponse represent the response from the BCV API
 type BCVTasaUSDResponse struct {
 	Date string  `json:"date"`
@@ -36,17 +38,16 @@ type ErrorResponse struct {
 }
 
 type GetOperationResponse struct {
-	Code      string `json:"code"`
-	Reference string `json:"reference"`
-	Success   bool   `json:"success"`
+	Code      domains.R4Code `json:"code"`
+	Reference string         `json:"reference"`
+	Success   bool           `json:"success"`
 }
 
 type ValidateDebitInmediateResponse struct {
-	ID        string `json:"id"`
-	Code      string `json:"code"`
-	Reference string `json:"reference"`
-	Message   string `json:"message"`
-	Status    bool   `json:"status"`
+	ID        string         `json:"id"`
+	Code      domains.R4Code `json:"code"`
+	Reference string         `json:"reference"`
+	Status    bool           `json:"status"`
 }
 
 type DirectDebitAccountRequest struct {
@@ -58,9 +59,8 @@ type DirectDebitAccountRequest struct {
 }
 
 type DirectDebitAccountResponse struct {
-	ID        string `json:"id"`
-	Code      string `json:"code"`
-	Reference string `json:"reference"`
-	Message   string `json:"message"`
-	Success   bool   `json:"success"`
+	ID        string         `json:"id"`
+	Code      domains.R4Code `json:"code"`
+	Reference string         `json:"reference"`
+	Success   bool           `json:"success"`
 }

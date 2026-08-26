@@ -98,27 +98,6 @@ func (s *cartPaymentService) GenerateOTP(
 	})
 }
 
-// awaitOperation polls R4 for the final status of a débito inmediato charge,
-// which may be pending for several seconds after the initial ValidateImmediateDebit call returns.
-func (s *cartPaymentService) awaitOperation(
-	resp *r4bank.ValidateDebitInmediateResponse,
-) (code, reference string, success bool) {
-	code, reference, success = resp.Code, resp.Reference, resp.Status
-
-	for intents := 0; domains.IsR4BreakCode(code) && intents < 15; intents++ {
-		time.Sleep(3 * time.Second)
-
-		op, err := s.r4Repo.GetOperationByID(context.Background(), resp.ID)
-		if err != nil {
-			s.logger.Error(err.Error())
-			return "ERROR", reference, false
-		}
-		code, reference, success = op.Code, op.Reference, op.Success
-	}
-
-	return code, reference, success
-}
-
 func (s *cartPaymentService) registerDebitDirectPayment(ctx context.Context, req dbModels.R4AppaDebitDirect) {
 	if err := s.db.WithContext(ctx).Create(&req).Error; err != nil {
 		s.logger.Error("failed to register cart debit direct payment", zap.Error(err))
@@ -147,20 +126,19 @@ func (s *cartPaymentService) ValidateDirectDebit(
 		Concept: req.Concept,
 	})
 	if err != nil {
-		s.logger.Error(err.Error())
+		s.logger.Error("failed to validate direct debit", zap.Error(err), zap.String("cartId", quote.CartID))
 		return nil, errors.New(_debitImmediateGenericError)
 	}
 
-	code, reference, success := s.awaitOperation(r4Resp)
-
-	s.registerDebitDirectPayment(context.Background(), dbModels.R4AppaDebitDirect{
+	s.registerDebitDirectPayment(ctx, dbModels.R4AppaDebitDirect{
 		SenderPhone: req.Phone,
 		IssuingBank: req.Bank,
 		Amount:      amount,
-		Reference:   reference,
+		Reference:   r4Resp.Reference,
 		DNI:         fmt.Sprintf("%s-%s", req.DNIType, req.DNI),
-		Code:        code,
-		Success:     success,
+		Code:        string(r4Resp.Code),
+		Success:     r4Resp.Status,
+		OperationID: r4Resp.ID,
 		CartID:      quote.CartID,
 		OrderType:   string(models.OrderTypeCart),
 		Date:        time.Now().In(s.location),
@@ -168,10 +146,10 @@ func (s *cartPaymentService) ValidateDirectDebit(
 	})
 
 	return &models.CartDirectDebitResult{
-		Success:   code == domains.R4CodeApproved,
-		Code:      code,
-		Reference: reference,
-		Message:   r4Resp.Message,
+		Success:   r4Resp.Code == domains.R4CodeApproved,
+		Code:      string(r4Resp.Code),
+		Reference: r4Resp.Reference,
+		Message:   r4Resp.Code.GetR4CodeDescription(),
 	}, nil
 }
 
@@ -402,7 +380,7 @@ func (s *cartPaymentService) DirectDebitAccount(
 		DNI:         req.DNI,
 		Amount:      amount,
 		Reference:   r4Resp.Reference,
-		Code:        r4Resp.Code,
+		Code:        string(r4Resp.Code),
 		Success:     r4Resp.Code == domains.R4CodeApproved,
 		CartID:      quote.CartID,
 		IsRecurring: true,
@@ -419,10 +397,13 @@ func (s *cartPaymentService) DirectDebitAccount(
 func (s *cartPaymentService) directDebitAccountResultFromR4(
 	r4Resp *r4bank.DirectDebitAccountResponse,
 ) (*models.CartDirectDebitAccountResult, error) {
+	message := r4Resp.Code.GetR4CodeDescription()
+
 	if r4Resp.Code == domains.R4CodeApproved {
 		return &models.CartDirectDebitAccountResult{
 			Success:   true,
 			Code:      domains.ResponseCodeOK,
+			Message:   message,
 			Reference: r4Resp.Reference,
 		}, nil
 	}
@@ -431,12 +412,18 @@ func (s *cartPaymentService) directDebitAccountResultFromR4(
 		return &models.CartDirectDebitAccountResult{
 			Success:   false,
 			Code:      internalCode,
+			Message:   message,
 			Reference: r4Resp.Reference,
 		}, nil
 	}
 
-	s.logger.Error("unexpected direct debit account code", zap.String("code", r4Resp.Code), zap.String("message", r4Resp.Message))
-	return nil, errors.New(_debitImmediateGenericError)
+	s.logger.Debug("unexpected direct debit account code", zap.String("code", string(r4Resp.Code)), zap.String("message", message))
+	return &models.CartDirectDebitAccountResult{
+		Success:   false,
+		Code:      string(r4Resp.Code),
+		Message:   message,
+		Reference: r4Resp.Reference,
+	}, nil
 }
 
 // RequestDirectDebitAccountOTP mails a 6-digit code to the email Shopify has
@@ -524,7 +511,7 @@ func (s *cartPaymentService) ValidateDirectDebitAccountOTP(
 		DNI:         directDebit.DNI,
 		Amount:      amount,
 		Reference:   r4Resp.Reference,
-		Code:        r4Resp.Code,
+		Code:        string(r4Resp.Code),
 		Success:     r4Resp.Code == domains.R4CodeApproved,
 		CartID:      quote.CartID,
 		IsRecurring: true,
