@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"time"
 
-	"appa_payments/internal/domains"
 	helpers "appa_payments/pkg"
 
 	"go.uber.org/zap"
@@ -106,19 +105,13 @@ func (r *RestClient) Do(
 	defer resp.Body.Close()
 
 	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusInternalServerError {
+		r.logger.Error("R4 API internal server error", zap.String("body", string(data)), zap.Any("payload", payload))
+		return nil, fmt.Errorf("R4 API internal server error: %s", string(data))
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var body domains.R4errorResponse
-		_ = json.Unmarshal(data, &body)
-
-		if endpoint == r4ValidateImmediateEndpoint {
-			return nil, &domains.R4APIError{Code: body.Code, OperationID: body.OperationID, Detail: string(data)}
-		}
-		r.logger.Error("R4 API error: ", zap.String("body", string(data)), zap.Any("payload", payload))
-		return nil, &domains.R4APIError{
-			Code:        body.Code,
-			OperationID: body.OperationID,
-			Detail:      fmt.Sprintf("R4 API error: %s", string(data)),
-		}
+		r.logger.Error("R4 API failed status code", zap.Int("status_code", resp.StatusCode), zap.String("body", string(data)), zap.Any("payload", payload))
+		return data, fmt.Errorf("R4 API returned status code %d: %s", resp.StatusCode, string(data))
 	}
 
 	return data, nil

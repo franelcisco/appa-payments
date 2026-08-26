@@ -31,16 +31,15 @@ type DirectDebitAccountRequest struct {
 	IsRecurring bool
 }
 
-var directDebitAccountResponseCodes = map[string]string{
+var directDebitAccountResponseCodes = map[R4Code]string{
 	R4CodeInsufficientFunds:     ResponseCodeInsufficientFunds,
 	R4CodeAffiliationRequested:  ResponseCodeAffiliationPending,
 	R4CodeAffiliationNotAcepted: ResponseCodeAffiliationRefused,
 	R4CodeInvalidAccountNumber:  ResponseCodeInvalidAccount,
 }
 
-// DirectDebitAccountResponseCode maps an R4 code to ours. ok is false for a
-// code with no mapping, which callers must treat as unexpected.
-func DirectDebitAccountResponseCode(r4Code string) (string, bool) {
+// DirectDebitAccountResponseCode maps a response code from the R4 service to a code that can be sent to the checkout.
+func DirectDebitAccountResponseCode(r4Code R4Code) (string, bool) {
 	code, ok := directDebitAccountResponseCodes[r4Code]
 	return code, ok
 }

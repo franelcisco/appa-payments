@@ -64,13 +64,13 @@ func (p *PaymentHandler) HandlerValidateDirectDebit(c *gin.Context) {
 		return
 	}
 
-	err := p.Service.ValidateDirectDebit(context.Background(), validateRequest)
+	result, err := p.Service.ValidateDirectDebit(context.Background(), validateRequest)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Direct debit validated successfully"})
+	c.JSON(http.StatusOK, result)
 }
 
 // HandleValidateMobilePayment handles mobile payment validation

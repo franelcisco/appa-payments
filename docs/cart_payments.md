@@ -91,29 +91,32 @@ There is no cart equivalent of `bcv-tasa` (use `GET /payments/bcv-tasa`) or of
 ## Débito inmediato
 
 `generate-otp` converts the quote amount to VES and asks R4 to send the OTP.
-`validate-direct-debit` charges, then resolves the outcome **in the request**
-with `awaitOperation`: poll `GetOperationByID` every 3 s, at most 15 times,
-until the code stops being a break code (`AC00`, `"11"`). This is the opposite
-of the order/draft path, which answers off R4's first reply and resolves the
-rest in a goroutine — so here the caller waits up to ~45 s and gets the resolved
-code, and there it gets an unresolved 200.
+`validate-direct-debit` charges and answers off the code R4 returns. The
+r4-service resolves the operation to a final code before replying, so this path
+**no longer polls** — `awaitOperation` and its ~45 s of in-request `GetOperationByID`
+calls are gone. The order/draft path answers exactly the same way now
+(`docs/payments.md`); the two are no longer opposites.
 
 The row lands in `r4_appa_debits_direct` with `cart_id` set and
 `order_type = "Cart"`. Response:
 
 ```json
-{ "success": true, "code": "ACCP", "reference": "...", "message": "..." }
+{ "success": true, "code": "ACCP", "reference": "...", "message": "Transacción Exitosa" }
 ```
 
-`success` is strictly `code == "ACCP"`.
+`success` is strictly `code == "ACCP"`. `message` is the description of that
+code (`R4Code.GetR4CodeDescription()`), or `"Desconocido"` for a code we have no
+text for — never an invented reason.
 
-> **A cart débito inmediato that outlasts the 15 polls has no follow-up.**
-> Unlike the order path — which hands the operation to a background poller and
-> answers `EN_PROCESO` — this path just returns the last code it saw
-> (`AC00` / `"11"`) with `success: false`, and stops looking. The row keeps that
-> non-final code forever. If R4 later approves it, nothing here notices, nothing
-> attaches an order, and the buyer has paid for an order that was never minted.
-> Reconcile those rows out of band.
+**No code at all** (transport failure, the r4-service's own 500) → HTTP 500 and
+**no row is written**, only a log. Every case where R4 did answer with a code —
+including a refusal or a break code — is a 200 carrying that code.
+
+> **A cart débito inmediato left on a break code has no follow-up.** `AC00` /
+> `"11"` come back with `success: false` and the row keeps that non-final code
+> forever. If R4 later approves it, nothing here notices, nothing attaches an
+> order, and the buyer has paid for an order that was never minted. Reconcile
+> those rows out of band.
 
 ## Pago Móvil
 
@@ -227,8 +230,10 @@ charge. It cannot attach an order using only its own credentials.
   `paymentService`'s. It does not survive a restart between the two steps and
   does not work across more than one running instance — an instance that didn't
   serve `request-otp` has no record of the code `otp` is asked to validate.
-- **Unmapped R4 codes fall through to a generic 500**, same as the rest of
-  domiciliación.
+- **Unmapped R4 codes come back as the bank's own code**, same as the rest of
+  domiciliación (`docs/payments.md`): 200, `success: false`, `code` set to the
+  raw R4 code, `"message": "Desconocido"`. The front must not assume `code` is
+  always one of ours (`OK`, `ERR0X`).
 - **No idempotency.** A retried `validate-direct-debit` charges again; a retried
   `direct-debit-account` charges again. There is no request key, and no check for
   an existing successful row on the same cart before charging.

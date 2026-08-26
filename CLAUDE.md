@@ -20,7 +20,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o /tm
 # Standard Go tooling — no Makefile in repo
 go vet ./...
 go build ./...
-go test ./...             # currently no _test.go files in tree
+go test ./...             # domains + pkg/r4bank have tests; most packages have none
 gofmt -w .
 
 # Container build
@@ -74,7 +74,10 @@ pkg/                       reusable infrastructure clients (no business logic)
 
 - **OTP cache** (`internal/services/otp_cache.go`) is in-memory, mutex-protected, 2-minute TTL, single-use (`Validate` deletes on match). It is not durable — any restart drops codes. Replacing it requires changing the dependency in `NewPaymentService`.
 - **Direct debit account** has two modes — first-charge and recurring — distinguished by Shopify order tags `direct_debit_account_firts` (sic) and `direct_debit_account_recurrent`. The `RECURRENT_DIRECT_DEBIT_APP_ID` env var identifies the app that owns the recurring charge metafield.
-- **R4 → frontend error mapping** lives in `directDebitAccountBankErrorCodes` (services/payments.go). The frontend pattern is: R4 returns `AM04`/`MD01`/`MD09`/`AC01`, we translate to `ERR01`–`ERR04`, the frontend renders Spanish copy. Add new codes here, not in handlers.
+- **R4 codes reach the frontend; a refusal is not an error.** `internal/domains/r4.go` owns the typed `R4Code`, the code→Spanish description map, and `GetR4CodeDescription()` (`"Desconocido"` for a code with no text). The rule across every rail: **if R4 answered with a code at all — from the success body or from the error body — the endpoint responds `200` carrying that code plus its `message`.** `500` is reserved for the case where there is no code (transport failure, the r4-service's own `500`, or a failure before the call), because a call with no code may still be in flight at the bank and must not be rendered as a refusal.
+- **The r4-service's own contract** (repo `boneappetit-r4-service`): `422` with `{error, code, operation_id}` for a coded refusal, `504` with a code on its timeout, `500` with only `{error}` otherwise. `pkg/r4bank/client.go` mirrors that split — `500` returns `(nil, err)`, any other non-2xx returns `(body, err)` — and `parseR4ErrorBody` in `pkg/r4bank/repository.go` turns that body into a normal response struct carrying `Code`/`ID`, for both `ValidateImmediateDebit` and `DirectDebitAccount`.
+- **Domiciliación code mapping** lives in `directDebitAccountResponseCodes` (`internal/domains/direct_debit_account.go`): R4 returns `AM04`/`MD01`/`MD09`/`AC01`, we translate to `ERR01`–`ERR04`, the frontend renders Spanish copy. Add new codes there, not in handlers. A code with **no** mapping is passed through raw (with `message: "Desconocido"`) instead of failing the request, so the frontend must not assume `code` is always one of ours.
+- **No polling.** The r4-service resolves an operation to a final code before answering, so this service no longer polls `GetOperationByID` (`waitForOperationCompletion` and `awaitOperation` are gone). A break code (`AC00`/`11`) is returned to the frontend as-is; nothing finalizes that order later, same as in `bone_appetit_api`.
 - **Customer DNI** comes from either the request (`dni` + `dniType`) or the Shopify customer's `ParentID` metafield (format `dniType-dni`). Use `helpers.GetCustomerDNI`, do not re-parse inline.
 - **Amount comparison** uses a tolerance of `0.1 USD * BCVTasa` (≈10 ¢ in bolívars) when matching a recorded mobile payment against the order total. Greater amount → success with overpayment notice; lesser → failure path that emails support.
 

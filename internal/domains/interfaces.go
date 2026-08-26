@@ -17,7 +17,7 @@ type StoreService interface {
 // PaymentService defines payment validation logic
 type PaymentService interface {
 	GenerateOTP(ctx context.Context, req models.OTPRequest) error
-	ValidateDirectDebit(ctx context.Context, req models.ValidateOTPRequest) error
+	ValidateDirectDebit(ctx context.Context, req models.ValidateOTPRequest) (*models.DirectDebitResult, error)
 	ValidateMobilePayment(ctx context.Context, req models.ValidateMobilePaymentRequest) *models.MobilePaymentResponse
 	ValidateMobilePaymentManual(ctx context.Context, req models.ValidateMobilePaymentManualRequest) error
 	RequestDirectDebitAccountOTP(ctx context.Context, orderID string, typeOrder *models.OrderType) error
