@@ -215,6 +215,7 @@ func (p *paymentService) ValidateDirectDebit(
 	if value, err := strconv.ParseFloat(target.AmountUSD, 64); err == nil {
 		currentOrderPrice = value * BCVTasa
 	}
+
 	p.logger.Debug("currentOrderPrice", zap.Any("currentOrderPrice", currentOrderPrice))
 	r4Resp, err := p.r4Repo.ValidateImmediateDebit(ctx, r4bank.ValidateOTPRequest{
 		Bank:    req.Bank,
@@ -307,6 +308,7 @@ func (p *paymentService) GenerateOTP(
 	if value, err := strconv.ParseFloat(target.AmountUSD, 64); err == nil {
 		currentOrderPrice = value * BCVTasa
 	}
+
 	p.logger.Info("currentOrderPrice", zap.Any("currentOrderPrice", currentOrderPrice))
 	return p.r4Repo.GenerateOTP(ctx, r4bank.OTPRequest{
 		Bank:   req.Bank,
@@ -949,4 +951,102 @@ func (p *paymentService) HasSuccessfulRecurrentCharge(ctx context.Context, order
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// resolveOperation asks R4 where the operation stands, but only for a stored
+// code that is still undetermined: a settled row must not be re-queried, and a
+// transport failure leaves it undetermined rather than refused.
+func (p *paymentService) resolveOperation(
+	ctx context.Context,
+	operationID, storedCode string,
+) (*r4bank.GetOperationResponse, error) {
+	if !domains.IsReconcilableCode(domains.R4Code(storedCode)) {
+		return nil, domains.ErrOperationAlreadyFinal
+	}
+
+	op, err := p.r4Repo.GetOperationByID(ctx, operationID)
+	if err != nil {
+		p.logger.Error("failed to fetch r4 operation", zap.Error(err), zap.String("operation_id", operationID))
+		return nil, domains.DirectDebitGenericError
+	}
+
+	return op, nil
+}
+
+// RefreshDirectDebitStatus checks the status of a direct debit operation and updates the database record if the status has changed.
+func (p *paymentService) RefreshDirectDebitStatus(
+	ctx context.Context,
+	req models.RefreshOperationStatusRequest,
+) (*models.RefreshOperationStatusResponse, error) {
+	var (
+		record dbModels.R4AppaDebitDirect
+		db     = p.db.WithContext(ctx)
+	)
+
+	if err := db.Where("operation_id = ?", req.OperationID).First(&record).Error; err != nil {
+		return nil, domains.ErrOperationNotFound
+	}
+
+	op, err := p.resolveOperation(ctx, req.OperationID, record.Code)
+	if err != nil {
+		return nil, err
+	}
+
+	if op.Code == domains.R4Code(record.Code) {
+		return nil, nil
+	}
+
+	record.Code = string(op.Code)
+	record.Success = op.Code == domains.R4CodeApproved
+	if err := db.Save(&record).Error; err != nil {
+		p.logger.Error("failed to update direct debit operation",
+			zap.Error(err), zap.String("operation_id", req.OperationID))
+		return nil, domains.DirectDebitGenericError
+	}
+
+	return &models.RefreshOperationStatusResponse{
+		OperationID: record.OperationID,
+		Code:        record.Code,
+		Reference:   record.Reference,
+		Success:     record.Success,
+	}, nil
+}
+
+// RefreshDirectDebitAccountStatus checks the status of a direct debit account operation and updates the database record if the status has changed.
+func (p *paymentService) RefreshDirectDebitAccountStatus(
+	ctx context.Context,
+	req models.RefreshOperationStatusRequest,
+) (*models.RefreshOperationStatusResponse, error) {
+	var (
+		record dbModels.R4DebitDirectAccount
+		db     = p.db.WithContext(ctx)
+	)
+
+	if err := db.Where("operation_id = ?", req.OperationID).First(&record).Error; err != nil {
+		return nil, domains.ErrOperationNotFound
+	}
+
+	op, err := p.resolveOperation(ctx, req.OperationID, record.Code)
+	if err != nil {
+		return nil, err
+	}
+
+	if op.Code == domains.R4Code(record.Code) {
+		return nil, nil
+	}
+
+	record.Code = string(op.Code)
+	record.Success = op.Code == domains.R4CodeApproved
+	if err := db.Save(&record).Error; err != nil {
+		p.logger.Error("failed to update direct debit account operation",
+			zap.Error(err), zap.String("operation_id", req.OperationID))
+		return nil, domains.DirectDebitAccountGenericError
+	}
+
+	return &models.RefreshOperationStatusResponse{
+		OperationID: record.OperationID,
+		Code:        record.Code,
+		Reference:   record.Reference,
+		Success:     record.Success,
+	}, nil
 }

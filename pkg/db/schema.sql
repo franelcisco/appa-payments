@@ -23,6 +23,7 @@ CREATE INDEX idx_r4_appa_debits_direct_account_store_client_id ON r4_appa_debits
 CREATE INDEX idx_r4_appa_debits_direct_account_account ON r4_appa_debits_direct_account(account);
 CREATE INDEX idx_r4_appa_debits_direct_account_reference ON r4_appa_debits_direct_account(reference);
 CREATE INDEX idx_r4_appa_debits_direct_account_dni ON r4_appa_debits_direct_account(dni);
+CREATE INDEX idx_r4_appa_debits_direct_account_operation_id ON r4_appa_debits_direct_account(operation_id);
 
 CREATE TABLE IF NOT EXISTS r4_appa_debits_direct (
     id int4 GENERATED ALWAYS AS IDENTITY( INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START 1 CACHE 1 NO CYCLE) NOT NULL,
@@ -48,6 +49,7 @@ CREATE INDEX idx_r4_appa_debits_direct_sender_phone ON r4_appa_debits_direct(sen
 CREATE INDEX idx_r4_appa_debits_direct_reference ON r4_appa_debits_direct(reference);
 CREATE INDEX idx_r4_appa_debits_direct_dni ON r4_appa_debits_direct(dni);
 CREATE INDEX idx_r4_appa_debits_direct_order_id ON r4_appa_debits_direct(order_id);
+CREATE INDEX idx_r4_appa_debits_direct_operation_id ON r4_appa_debits_direct(operation_id);
 CREATE INDEX idx_r4_appa_debits_direct_date ON r4_appa_debits_direct(date);
 
 CREATE TABLE IF NOT EXISTS r4_appa_recurrent_pending_payments (

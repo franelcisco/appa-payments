@@ -26,4 +26,6 @@ func (p *PaymentRoute) SetRouter(router gin.IRoutes) {
 	router.POST("/payments/direct-debit-account", p.Handler.HandleDirectDebitAccount)
 	router.GET("/payments/direct-debit-account/otp/:orderId", p.Handler.HandleRequestDirectDebitAccountOTP)
 	router.POST("/payments/direct-debit-account/otp", p.Handler.HandleDirectDebitAccountWithOTP)
+	router.POST("/payments/direct-debit/refresh-status", p.Handler.HandleRefreshDirectDebitStatus)
+	router.POST("/payments/direct-debit-account/refresh-status", p.Handler.HandleRefreshDirectDebitAccountStatus)
 }

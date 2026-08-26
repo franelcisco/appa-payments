@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -189,4 +190,52 @@ func (p *PaymentHandler) HandleValidateMobilePaymentManual(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Zelle payment validated successfully"})
+}
+
+// getRefreshStatusError is a helper function that maps domain errors to HTTP status codes and messages.
+func getRefreshStatusError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, domains.ErrOperationNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+	case errors.Is(err, domains.ErrOperationAlreadyFinal):
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+	case err != nil:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	}
+}
+
+// HandleRefreshDirectDebitStatus re-queries R4 for an immediate debit left in
+// an undetermined code and updates the stored row with the answer.
+func (p *PaymentHandler) HandleRefreshDirectDebitStatus(c *gin.Context) {
+	var req models.RefreshOperationStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp, err := p.Service.RefreshDirectDebitStatus(c.Request.Context(), req)
+	if err != nil {
+		getRefreshStatusError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+// HandleRefreshDirectDebitAccountStatus re-queries R4 for a domiciliación
+// charge left in an undetermined code and updates the stored row with the answer.
+func (p *PaymentHandler) HandleRefreshDirectDebitAccountStatus(c *gin.Context) {
+	var req models.RefreshOperationStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp, err := p.Service.RefreshDirectDebitAccountStatus(c.Request.Context(), req)
+	if err != nil {
+		getRefreshStatusError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
 }

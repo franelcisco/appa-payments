@@ -151,3 +151,16 @@ type DirectDebitAccount struct {
 	Account string `json:"account"`
 	DNI     string `json:"dni"`
 }
+
+// RefreshOperationStatusRequest identifies a stored operation whose code is
+// still undetermined.
+type RefreshOperationStatusRequest struct {
+	OperationID string `json:"operationId" binding:"required"`
+}
+
+type RefreshOperationStatusResponse struct {
+	OperationID string `json:"operationId"`
+	Code        string `json:"code"`
+	Reference   string `json:"reference"`
+	Success     bool   `json:"success"`
+}
