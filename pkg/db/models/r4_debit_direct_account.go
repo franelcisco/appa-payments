@@ -10,7 +10,7 @@ type R4DebitDirectAccount struct {
 	Reference     string    `gorm:"column:reference" json:"reference"`
 	DNI           string    `gorm:"column:dni" json:"dni"`
 	Code          string    `gorm:"column:code" json:"code"`
-	OperationID   string    `gorm:"column:operation_id" json:"operationId,omitempty"`
+	OperationID   string    `gorm:"column:operation_id;index" json:"operationId,omitempty"`
 	Success       bool      `gorm:"column:success" json:"success"`
 	OrderID       string    `gorm:"column:order_id;default:null"  json:"orderId,omitempty"`
 	OrderName     string    `gorm:"column:order_name;default:null" json:"orderName,omitempty"`

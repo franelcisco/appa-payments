@@ -91,3 +91,48 @@ func TestDirectDebitAccountResponseCode(t *testing.T) {
 		}
 	}
 }
+
+// Pinned because these strings are the r4-service's, not ours: they arrive in
+// its error body and get stored verbatim.
+func TestInternalCodeValues(t *testing.T) {
+	cases := map[R4Code]string{
+		R4CodeTimeout:                 "INT01",
+		R4CodeUpstreamError:           "INT02",
+		R4CodeInvalidUpstreamResponse: "INT03",
+	}
+	for got, want := range cases {
+		if string(got) != want {
+			t.Fatalf("code %q, want %q", got, want)
+		}
+	}
+
+	for _, code := range []R4Code{R4CodeTimeout, R4CodeUpstreamError, R4CodeInvalidUpstreamResponse} {
+		if got := code.GetR4CodeDescription(); got == R4CodeUnknownDescription {
+			t.Fatalf("GetR4CodeDescription(%q) = %q, want a description", code, got)
+		}
+	}
+}
+
+// A code that is reconcilable is one whose row may still be updated. Getting
+// this wrong either re-queries an operation the bank already settled or leaves
+// an undetermined charge stuck forever.
+func TestIsReconcilableCode(t *testing.T) {
+	cases := map[R4Code]bool{
+		R4CodeInProgress:              true,
+		R4CodeInPending:               true,
+		R4CodeTimeout:                 true,
+		R4CodeUpstreamError:           true,
+		R4CodeInvalidUpstreamResponse: true,
+		R4CodeApproved:                false,
+		R4CodeInsufficientFunds:       false,
+		R4CodeInvalidAccountNumber:    false,
+		R4CodeUpstreamRejected:        false,
+		"ZZ99":                        false,
+		"":                            false,
+	}
+	for code, want := range cases {
+		if got := IsReconcilableCode(code); got != want {
+			t.Fatalf("IsReconcilableCode(%q) = %v, want %v", code, got, want)
+		}
+	}
+}

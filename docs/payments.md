@@ -10,6 +10,10 @@ Shopify store: `appacare.myshopify.com` (Admin GraphQL). All bolívar amounts ar
 derived as `usd * BCVTasa`; the rate is cached per day in memory (`pkg/bcv`).
 Server timezone is pinned to `America/Caracas`.
 
+> The two `refresh-status` endpoints, which re-query R4 for a charge left in an
+> undetermined code, are documented in
+> [`docs/refresh_status.md`](refresh_status.md).
+
 > The cart-keyed counterpart (`?cartId=` entry path, no order yet) lives in
 > [`docs/cart_payments.md`](cart_payments.md). Everything below assumes a
 > Shopify **Order** or **DraftOrder** already exists.
@@ -40,6 +44,8 @@ about the field.
 | `/payments/direct-debit-account` | POST | `orderId` (body) | ✅ | Domiciliación, first-time affiliation |
 | `/payments/direct-debit-account/otp/:orderId` | GET | `orderId` (path) | ✅ (query `?typeOrder=`) | Domiciliación, request OTP |
 | `/payments/direct-debit-account/otp` | POST | `orderId` (body) | ✅ | Domiciliación, charge with OTP |
+| `/payments/direct-debit/refresh-status` | POST | `operationId` (body) | — | Reconciliation, débito inmediato |
+| `/payments/direct-debit-account/refresh-status` | POST | `operationId` (body) | — | Reconciliation, domiciliación |
 
 Registered in `internal/routes/payments.go`. Adjacent groups, documented here
 only where they touch payments: `/orders/:id`, `/orders/confirmation/:name`,
@@ -55,8 +61,9 @@ method references them — dead shapes, not endpoints.
 
 Handlers are thin (`internal/handlers/payment.go`): bind JSON, call the service,
 map any service error to **HTTP 500 with the raw error message** as
-`{"error": "..."}`. Bind failures are 400. There is no error envelope beyond
-that, so:
+`{"error": "..."}`. Bind failures are 400. The only endpoints that map a service
+error to anything else are the two [`refresh-status`](refresh_status.md) ones,
+which also answer 404 and 409. There is no error envelope beyond that, so:
 
 - A failed **pago móvil** match is **HTTP 200** with `{"success": false, "message": "..."}`
   — the front must read `success`, not the status code.
@@ -101,12 +108,13 @@ then the reply:
   `success: true` — the money moved and the buyer must not retry. Support is
   alerted; see the error-handling note below.
 
-> **A break code has no follow-up channel.** No poll endpoint, no status
-> endpoint, no webhook for the front to learn how that charge ended, on any
-> `typeOrder` — and nothing marks the order paid later either, now that the
-> background poller is gone. If R4 later approves an `AC00`, nothing here
-> notices. Reconcile those rows out of band. This matches `bone_appetit_api`,
-> deliberately: the two services answer the same way.
+> **A break code resolves itself nowhere.** No webhook and no poller: if R4
+> later approves an `AC00`, nothing here notices and nothing marks the order
+> paid, on any `typeOrder`. This matches `bone_appetit_api`, deliberately: the
+> two services answer the same way. The one follow-up channel is manual —
+> [`POST /payments/direct-debit/refresh-status`](refresh_status.md), which
+> re-queries R4 for that `operation_id` and updates the row. It updates the row
+> only; closing the sale stays out of band.
 
 ## Pago Móvil
 

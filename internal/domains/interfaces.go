@@ -24,6 +24,8 @@ type PaymentService interface {
 	DirectDebitAccount(ctx context.Context, req models.DirectDebitAccountRequest) (*models.ProcessDirectDebitAccountResponse, error)
 	DirectDebitAccountWithOTP(ctx context.Context, req models.DirectDebitAccountWithOTPRequest) (*models.ProcessDirectDebitAccountResponse, error)
 	HasSuccessfulRecurrentCharge(ctx context.Context, orderID string) (bool, error)
+	RefreshDirectDebitStatus(ctx context.Context, req models.RefreshOperationStatusRequest) (*models.RefreshOperationStatusResponse, error)
+	RefreshDirectDebitAccountStatus(ctx context.Context, req models.RefreshOperationStatusRequest) (*models.RefreshOperationStatusResponse, error)
 }
 
 // CartPaymentService defines methods for cart payment processing
