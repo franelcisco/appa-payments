@@ -20,7 +20,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o /tm
 # Standard Go tooling — no Makefile in repo
 go vet ./...
 go build ./...
-go test ./...             # domains + pkg/r4bank have tests; most packages have none
+go test ./...             # domains + pkg/r4bank have tests; payouts store test needs PAYOUT_TEST_DSN (skipped without it)
 gofmt -w .
 
 # Container build
@@ -81,6 +81,20 @@ pkg/                       reusable infrastructure clients (no business logic)
 - **No polling.** The r4-service resolves an operation to a final code before answering, so this service no longer polls `GetOperationByID` (`waitForOperationCompletion` and `awaitOperation` are gone). A break code (`AC00`/`11`) is returned to the frontend as-is; nothing finalizes that order later, same as in `bone_appetit_api`.
 - **Customer DNI** comes from either the request (`dni` + `dniType`) or the Shopify customer's `ParentID` metafield (format `dniType-dni`). Use `helpers.GetCustomerDNI`, do not re-parse inline.
 - **Amount comparison** uses a tolerance of `0.1 USD * BCVTasa` (≈10 ¢ in bolívars) when matching a recorded mobile payment against the order total. Greater amount → success with overpayment notice; lesser → failure path that emails support.
+
+### Payouts — the one route that sends money OUT
+
+`POST /payouts/vuelto` pushes a pago móvil (R4 `MBvuelto`) to a payee on behalf of a caller; APPA's admin uses it to pay claim reimbursements and clinic statements. Everything else here is public because the worst a stranger can do is ask about a payment. This route is different, and three rules hold it together — do not relax any of them:
+
+- **Signed, whole-instruction.** Headers `X-Payout-Exp` + `X-Payout-Signature` = hex HMAC-SHA256 with `PAYOUT_SECRET` over `payoutId:bank:phone:dni:amount(%.2f):exp:concept` (`middleware.PayoutMessage`; APPA builds the same string in `_shared/vueltoPayout.ts`). `PAYOUT_SECRET` is optional in config on purpose: unset, the service boots and this route refuses everything. The headers are deliberately NOT in the CORS allow-list — no browser calls this.
+- **Pay once per `payoutId`.** `r4_appa_payouts.payout_id` is UNIQUE and is reserved (`ON CONFLICT DO NOTHING`) *before* R4 is called. A repeated id never reaches R4; it gets the stored outcome back with `replayed: true`. If the table or index is missing the reservation errors and nothing is paid. `MBvuelto` has no idempotency key of its own — this is it.
+- **Three outcomes, never two.** `confirmed` (with the R4 reference), `rejected` (R4 said no — safe to retry under a new id), `unknown` (no usable answer; the money MAY have moved, never retried). 200 always carries an outcome; every non-200 carries `sent: false`, a promise that R4 was not called, which the caller relies on. `r4bank.ClassifyVuelto` decides; when in doubt it says `unknown`.
+
+The handler also validates shapes before verifying (uuid id, 4-digit bank, `04XXXXXXXXX` phone, `V12345678`-style document, whole céntimos, concept ≤ 60) — that is what keeps `:` out of the signed fields. A taken `payoutId` never gets `sent: false`, even when this request sent nothing: the id belongs to an earlier request that may have.
+
+**"Not 00" is not "no".** The R4 service reports every R4 code other than `00` with one generic error and does not pass the code on, and R4's table includes in-process codes (`AC00`, time-outs) where the transfer may still go through. So today a non-00 answer is `unknown`, and a person reconciles it against the R4 statement. `rejected` only happens when the R4 service refused the request itself (400/401/403, before R4), or when it returns R4's `code` AND that code is listed in `VUELTO_REJECT_CODES` (comma-separated, empty by default). Turning that on needs two things outside this repo: the R4 service passing `code` through in its error body, and the list confirmed against R4's code table.
+
+`ChangePaid` (refund Vueltos inside the payment flows) is untouched and still only returns an error.
 
 ### Database
 

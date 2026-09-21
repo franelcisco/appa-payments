@@ -77,3 +77,24 @@ CREATE TABLE IF NOT EXISTS r4_appa_mobile_payments_reversals (
 );
 
 CREATE UNIQUE INDEX idx_r4_appa_mobile_payments_reversals_id ON r4_appa_mobile_payments_reversals(id);
+-- Vueltos sent OUT on behalf of a caller (APPA claim payouts), one row per
+-- payout id. The UNIQUE index on payout_id is load-bearing: it is the
+-- idempotency key MBvuelto doesn't have. POST /payouts/vuelto reserves the id
+-- here BEFORE calling R4 and refuses to pay if this table or index is missing.
+-- numeric(14,2): clinic statements in Bs don't fit the numeric(10,2) used above.
+CREATE TABLE IF NOT EXISTS r4_appa_payouts (
+    id int4 GENERATED ALWAYS AS IDENTITY( INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START 1 CACHE 1 NO CYCLE) NOT NULL,
+    payout_id varchar(100) NOT NULL,
+    status varchar(20) NOT NULL DEFAULT 'pending',
+    bank varchar(10) NOT NULL,
+    phone varchar(20) NOT NULL,
+    dni varchar(20) NOT NULL,
+    amount numeric(14,2) NOT NULL,
+    concept varchar(100),
+    reference varchar(100),
+    detail text,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_r4_appa_payouts_payout_id ON r4_appa_payouts(payout_id);

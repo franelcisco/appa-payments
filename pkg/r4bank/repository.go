@@ -16,6 +16,7 @@ type R4Repository interface {
 	GenerateOTP(ctx context.Context, req OTPRequest) error
 	ValidateImmediateDebit(ctx context.Context, req ValidateOTPRequest) (*ValidateDebitInmediateResponse, error)
 	ChangePaid(ctx context.Context, req ChangePaidRequest) error
+	SendVuelto(ctx context.Context, req ChangePaidRequest) VueltoResult
 	GetOperationByID(ctx context.Context, operationID string) (*GetOperationResponse, error)
 	DirectDebitAccount(ctx context.Context, req DirectDebitAccountRequest) (*DirectDebitAccountResponse, error)
 }

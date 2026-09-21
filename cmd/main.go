@@ -132,6 +132,11 @@ func main() {
 	paymentHandler := handlers.NewPaymentHandler(paymentService, bcvClient)
 	cartPaymentHandler := handlers.NewCartPaymentHandler(cartPaymentService, bcvClient)
 
+	// payouts (Vuelto out to a payee, e.g. APPA claim reimbursements)
+	r4bank.ConfigureVueltoRejectCodes(cfg.VueltoRejectCodes)
+	payoutService := services.NewPayoutService(services.NewPayoutStore(gormDB), r4Repository, logger)
+	payoutHandler := handlers.NewPayoutHandler(payoutService, middleware.NewPayoutVerifier(cfg.PayoutSecret), logger)
+
 	// webhook
 	webhookService := services.NewWebhookService(paymentService, gormDB, logger)
 	webhookHandler := handlers.NewWebhookHandler(cfg.RecurrentDirectDebitAppID, webhookService, logger)
@@ -161,6 +166,7 @@ func main() {
 	storeRoutes.SetRouter(router)
 	paymentRoute.SetRouter(router)
 	cartPaymentRoutes.SetRouter(router)
+	routes.NewPayoutRoute(payoutHandler).SetRouter(router)
 	webhookRoutes.SetRouter(router, cfg.ShopifyHMACSecret)
 
 	if err := router.Run(":" + cfg.Port); err != nil {
