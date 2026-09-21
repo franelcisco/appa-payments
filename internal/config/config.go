@@ -50,6 +50,14 @@ type Config struct {
 
 	// Cart quote secret
 	CartQuoteSecret string
+
+	// PayoutSecret signs POST /payouts/vuelto. Optional on purpose: without it
+	// the service still boots and that one route refuses every request.
+	PayoutSecret string
+
+	// VueltoRejectCodes: comma-separated R4 codes that mean a definite "no" for a
+	// Vuelto. Optional and empty by default: see r4bank.ConfigureVueltoRejectCodes.
+	VueltoRejectCodes string
 }
 
 // Load reads configuration from environment variables and returns a Config struct
@@ -90,6 +98,9 @@ func Load() (*Config, error) {
 		RecurrentDirectDebitAppID: os.Getenv("RECURRENT_DIRECT_DEBIT_APP_ID"),
 
 		CartQuoteSecret: os.Getenv("CART_QUOTE_SECRET"),
+
+		PayoutSecret:      os.Getenv("PAYOUT_SECRET"),
+		VueltoRejectCodes: os.Getenv("VUELTO_REJECT_CODES"),
 	}
 
 	if err := validate(cfg); err != nil {
