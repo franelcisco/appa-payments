@@ -13,8 +13,10 @@ COPY . .
 
 # 3) Compila tu main de cmd/main.go
 #    Si tu paquete principal está en cmd/, este comando es correcto.
+#    CMD_PKG=./cmd/payouts compila el servicio que solo paga vueltos (sin cron).
+ARG CMD_PKG=./cmd
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -trimpath -ldflags "-s -w" -o /server ./cmd
+    go build -trimpath -ldflags "-s -w" -o /server ${CMD_PKG}
 
 # ====== Runtime stage ======
 FROM gcr.io/distroless/base-debian12
